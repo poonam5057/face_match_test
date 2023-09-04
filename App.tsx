@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -9,8 +9,13 @@ import {
   TouchableHighlight,
   Alert,
   NativeEventEmitter,
+  TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
-import {launchImageLibrary} from 'react-native-image-picker';
+import ImagePicker, {
+  launchImageLibrary,
+  launchCamera,
+} from 'react-native-image-picker';
 import FaceSDK, {
   Enum,
   FaceCaptureResponse,
@@ -63,7 +68,6 @@ export default class App extends React.Component<IProps, IState> {
       json => {
         console.log('Init success:--------------------- ', json);
         var response = JSON.parse(json);
-        console.log('Init success::::::::::::::::::::: ', response);
         if (!response['success']) {
           console.log('Init failed: ');
           console.log(json);
@@ -77,61 +81,78 @@ export default class App extends React.Component<IProps, IState> {
       img2: require('./images/portrait.png'),
       similarity: 'nil',
       liveness: 'nil',
+      isLoader: false,
+      matchData: 0,
     };
   }
 
+  handleStateChange = () => {
+    console.log('State has changed. New count:', this.state.matchData);
+    if (this.state.matchData === 1) {
+      this.pickImage(true);
+    } else if (this.state.matchData === 2) {
+      this.pickImage2(false);
+    } else {
+      this.matchFaces();
+    }
+  };
+
+  faceMatchMethod = () => {
+    this.setState(
+      prevState => ({
+        matchData: prevState.matchData + 1,
+      }),
+      this.handleStateChange,
+    );
+  };
+
+  componentDidMount(): void {
+    if (this.state.matchData === 1) {
+      this.pickImage(true);
+    } else if (this.state.matchData === 2) {
+      this.pickImage2(false);
+    } else {
+      this.matchFaces();
+    }
+  }
+
   pickImage(first: boolean) {
-    Alert.alert(
-      'Select option',
-      '',
-      [
-        {
-          text: 'Use gallery',
-          onPress: () =>
-            launchImageLibrary(
-              {
-                mediaType: 'photo',
-                selectionLimit: 1,
-                includeBase64: true,
-              },
-              response => {
-                if (response.assets == undefined) return;
-                this.setImage(
-                  first,
-                  response.assets[0].base64!,
-                  Enum.ImageType.PRINTED,
-                );
-              },
-            ),
-        },
-        {
-          text: 'Use camera',
-          onPress: () =>
-            FaceSDK.presentFaceCaptureActivity(
-              json => {
-                console.log(
-                  'FaceCaptureResponse=================================================: ' +
-                    json,
-                );
-                var response = FaceCaptureResponse.fromJson(JSON.parse(json))!;
-                console.log(
-                  'response.image.bitmap-----------dddddddd-----------: ' +
-                    JSON.stringify(response),
-                );
-                console.log("Enum.ImageType.LIVE----------------------: " + Enum.ImageType.LIVE);
-                console.log("response.image.bitmap ------a----------------: " + response.image);
-                if (response.image != null && response.image.bitmap != null)
-                  this.setImage(
-                    first,
-                    response.image.bitmap,
-                    Enum.ImageType.LIVE,
-                  );
-              },
-              _e => {},
-            ),
-        },
-      ],
-      {cancelable: true},
+    launchImageLibrary(
+      {
+        mediaType: 'photo',
+        selectionLimit: 1,
+        includeBase64: true,
+      },
+      response => {
+        if (response.assets == undefined) return;
+        this.faceMatchMethod();
+        this.setImage(
+          first,
+          response.assets[0].base64!,
+          Enum.ImageType.PRINTED,
+        );
+      },
+    );
+  }
+
+  pickImage2(first: boolean) {
+    launchCamera(
+      {
+        mediaType: 'photo',
+        // selectionLimit: 1,
+        includeBase64: true,
+        // saveToPhotos: true,
+      },
+      response => {
+        if (response.assets == undefined) return;
+        this.setImage(
+          first,
+          response.assets[0].base64!,
+          // Enum.ImageType.PRINTED,
+          Enum.ImageType.LIVE,
+        );
+        this.faceMatchMethod();
+      },
     );
   }
 
@@ -150,15 +171,6 @@ export default class App extends React.Component<IProps, IState> {
     }
   }
 
-  clearResults() {
-    this.setState({img1: require('./images/portrait.png')});
-    this.setState({img2: require('./images/portrait.png')});
-    this.setState({similarity: 'null'});
-    this.setState({liveness: 'null'});
-    image1 = new MatchFacesImage();
-    image2 = new MatchFacesImage();
-  }
-
   matchFaces() {
     if (
       image1 == null ||
@@ -169,34 +181,45 @@ export default class App extends React.Component<IProps, IState> {
       image2.bitmap == ''
     )
       return;
-    this.setState({similarity: 'Processing...'});
+    // this.setState({similarity: 'Processing...'});
+
     var request = new MatchFacesRequest();
     request.images = [image1, image2];
+    this.setState({isLoader: true});
     FaceSDK.matchFaces(
       JSON.stringify(request),
       json => {
-        // console.log("json----------------------", json);
         var response = MatchFacesResponse.fromJson(JSON.parse(json));
-        console.log("response--------------dsss--------", JSON.stringify(response?.exception));
         FaceSDK.matchFacesSimilarityThresholdSplit(
           JSON.stringify(response!.results),
           0.75,
           str => {
-            // console.log("str-----------ddffffffgg-----------", str);
             var split = MatchFacesSimilarityThresholdSplit.fromJson(
               JSON.parse(str),
             )!;
-            console.log(
-              'split.matchedFaces!.length----------------------',
-              split,
-            );
+            // this.setState({
+            //   similarity:
+            //     split.matchedFaces!.length > 0
+            //     &&(split.matchedFaces![0].similarity! * 100).toFixed(2) > 80
+            //       ? alert('Face Match Successful')
+            //       : alert('Face Does Not Match'),
+            // });
+            if (
+              split.matchedFaces!.length > 0 &&
+              (split.matchedFaces![0].similarity! * 100).toFixed(2) > 80
+            ) {
+              alert('Face Match Successful');
+            } else {
+              alert('Face Does Not Match');
+            }
             this.setState({
-              similarity:
-                split.matchedFaces!.length > 0
-                  ? (split.matchedFaces![0].similarity! * 100).toFixed(2) + '%'
-                  : 'error',
+              img1: require('./images/portrait.png'),
+              img2: require('./images/portrait.png'),
+              similarity: 'nil',
+              liveness: 'nil',
+              isLoader: false,
+              matchData: 0,
             });
-            // this.setState({ similarity: split.matchedFaces!.length > 0 ? "Face Match Successfully" : "Face does not match" })
           },
           e => {
             this.setState({similarity: e});
@@ -209,80 +232,9 @@ export default class App extends React.Component<IProps, IState> {
     );
   }
 
-  liveness() {
-    FaceSDK.startLiveness(
-      json => {
-        // console.log("LivenessResponse----kkkkkkkkkkk-------------------------: " + json);
-        var response = LivenessResponse.fromJson(JSON.parse(json))!;
-        console.log(
-          'LivenessResponse-----------------------------: ' +
-            response['liveness'],
-        );
-        if (response.bitmap != null) {
-          this.setImage(true, response.bitmap, Enum.ImageType.LIVE);
-          this.setState({
-            liveness:
-              response['liveness'] == Enum.LivenessStatus.PASSED
-                ? 'passed'
-                : 'unknown',
-          });
-        }
-      },
-      _e => {},
-    );
-  }
-
-  faceCapture() {
-   const  config = {
-      cameraPositionIOS: 0,
-      cameraId: 0,
-      cameraSwitchEnabled: true,
-    };
-    console.log("-----------config-----------", config);
-    FaceSDK.presentFaceCaptureActivityWithConfig(
-      config,
-      faceCaptureResponse => {
-        const response = FaceCaptureResponse.fromJson(
-          JSON.parse(faceCaptureResponse),
-        );
-        console.log("-----------catch-----------", response);
-        // ... check response.image.bitmap for capture result.
-      },
-      e => {},
-    );
-  }
-
   render() {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={{flexDirection: 'column', padding: 5}}>
-          <View style={{flexDirection: 'column', alignItems: 'center'}}>
-            <TouchableHighlight onPress={() => this.pickImage(true)}>
-              <Image
-                style={{
-                  height: 150,
-                  width: 150,
-                }}
-                source={this.state.img1}
-                resizeMode="contain"
-              />
-            </TouchableHighlight>
-          </View>
-          <View
-            style={{flexDirection: 'column', alignItems: 'center', padding: 5}}>
-            <TouchableHighlight onPress={() => this.pickImage(false)}>
-              <Image
-                style={{
-                  height: 150,
-                  width: 200,
-                }}
-                source={this.state.img2}
-                resizeMode="contain"
-              />
-            </TouchableHighlight>
-          </View>
-        </View>
-
         <View
           style={{
             flexDirection: 'column',
@@ -290,49 +242,24 @@ export default class App extends React.Component<IProps, IState> {
             alignItems: 'center',
           }}>
           <View style={{padding: 3, width: '75%'}}>
-            <Button
-              color="#4285F4"
-              onPress={() => {
-                this.matchFaces();
+            <TouchableOpacity
+              onPress={() => this.faceMatchMethod()}
+              style={{
+                height: 40,
+                width: 130,
+                backgroundColor: '#4285F4',
+                justifyContent: 'center',
+                alignSelf: 'center',
               }}
-              title="     Match     "
-            />
+              // disabled={this.state.similarity == null ? true : false}
+            >
+              {this.state.isLoader ? (
+                <ActivityIndicator size="small" color="white" />
+              ) : (
+                <Text style={{textAlign: 'center', color: 'white'}}>MATCH</Text>
+              )}
+            </TouchableOpacity>
           </View>
-          <View style={{padding: 3, width: '75%'}}>
-            <Button
-              color="#4285F4"
-              onPress={() => {
-                this.liveness();
-              }}
-              title="     Liveness     "
-            />
-          </View>
-          <View style={{padding: 3, width: '75%'}}>
-            <Button
-              color="#4285F4"
-              onPress={() => {
-                this.clearResults();
-              }}
-              title="Clear"
-            />
-          </View>
-          {/* <View style={{padding: 3, width: '75%'}}>
-            <Button
-              color="#4285F4"
-              onPress={() => {
-                this.faceCapture();
-              }}
-              title="Face capture"
-            />
-          </View> */}
-        </View>
-        <View style={{flexDirection: 'row'}}>
-          <Text style={{marginLeft: -20, color: 'black'}}>
-            Similarity: {this.state.similarity}
-          </Text>
-          <Text style={{marginLeft: 20, color: 'black'}}>
-            Liveness: {this.state.liveness}
-          </Text>
         </View>
       </SafeAreaView>
     );
@@ -348,5 +275,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F5FCFF',
     marginBottom: 12,
+  },
+  cameraContainer: {
+    width: 300,
+    height: 300,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  camera: {
+    flex: 1,
+  },
+  previewImage: {
+    flex: 1,
+    width: '100%',
+  },
+  captureButton: {
+    backgroundColor: 'blue',
+    padding: 10,
+    marginTop: 20,
+    borderRadius: 5,
+  },
+  captureButtonText: {
+    color: 'white',
+    fontSize: 16,
+  },
+  preview: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  capture: {
+    flex: 0,
+    backgroundColor: '#fff',
+    borderRadius: 5,
+    padding: 15,
+    paddingHorizontal: 20,
+    alignSelf: 'center',
+    margin: 20,
   },
 });
