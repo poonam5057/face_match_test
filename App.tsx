@@ -158,12 +158,10 @@ export default class App extends React.Component<IProps, IState> {
 
   setImage(first: boolean, base64: string, type: number) {
     if (base64 == null) return;
-    this.setState({similarity: 'null'});
     if (first) {
       image1.bitmap = base64;
       image1.imageType = type;
       this.setState({img1: {uri: 'data:image/png;base64,' + base64}});
-      this.setState({liveness: 'null'});
     } else {
       image2.bitmap = base64;
       image2.imageType = type;
